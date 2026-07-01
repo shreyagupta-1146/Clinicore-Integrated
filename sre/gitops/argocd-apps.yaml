@@ -1,0 +1,78 @@
+# sre/gitops/argocd-apps.yaml
+#
+# Argo CD Application manifests for the Clinicore platform.
+# Apply with: kubectl apply -f sre/gitops/argocd-apps.yaml
+#
+# Argo CD watches the Git repository and reconciles any drift from
+# the declared state. Pod restarts, config changes, and replica scaling
+# all happen via Git commits — not kubectl exec.
+#
+# Sync policy: automated with selfHeal=true.
+# SelfHeal means if someone manually kubectl-edits a resource in prod,
+# Argo CD reverts it within 3 minutes. This enforces GitOps discipline.
+#
+# Prune=false: Argo CD will NOT delete resources removed from Git by default.
+# Set to true only after the team is confident in the workflow — premature
+# pruning with a typo in a manifest can delete stateful services.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clinicore-dev
+  namespace: argocd
+  labels:
+    environment: dev
+    platform: clinicore
+spec:
+  project: clinicore
+  source:
+    repoURL: https://github.com/your-org/clinicore-integrated
+    targetRevision: develop
+    path: sre/k8s/overlays/dev
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: clinicore-dev
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clinicore-prod
+  namespace: argocd
+  labels:
+    environment: prod
+    platform: clinicore
+spec:
+  project: clinicore
+  source:
+    repoURL: https://github.com/your-org/clinicore-integrated
+    targetRevision: main
+    path: sre/k8s/overlays/prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: clinicore
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: false   # Explicitly false for prod — manual prune confirmation required
+    syncOptions:
+      - CreateNamespace=false   # prod namespace must pre-exist
+      - PrunePropagationPolicy=foreground
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

@@ -1,0 +1,91 @@
+# infrastructure/helm/clinicore/values.yaml
+# Override any value with --set or -f custom-values.yaml
+
+replicaCount: 2
+
+image:
+  repository: clinicore-backend
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+  hosts:
+    - host: api.clinicore.in
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: clinicore-tls
+      hosts:
+        - api.clinicore.in
+
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "250m"
+  limits:
+    memory: "2Gi"
+    cpu: "1000m"
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# -- Vault configuration (all secrets come from Vault — no k8s Secrets for PHI)
+vault:
+  url: "http://vault:8200"
+  mountPath: "clinicore"
+  # token injected by Vault Agent sidecar in production
+
+# -- Shared infra (can be disabled if using external managed services)
+postgresql:
+  enabled: true
+  auth:
+    database: clinicore
+    existingSecret: postgres-credentials
+    secretKeys:
+      adminPasswordKey: password
+      userPasswordKey: password
+  primary:
+    persistence:
+      size: 20Gi
+
+redis:
+  enabled: true
+  auth:
+    existingSecret: redis-credentials
+    existingSecretPasswordKey: password
+  master:
+    persistence:
+      size: 5Gi
+
+# -- Feature flags
+features:
+  modelGatewayMode: hybrid   # hybrid | cloud-only | onprem-only
+  phiRiskThreshold: "0.7"
+  maxMessagesPerChat: "20"
+
+# -- Pod security
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]

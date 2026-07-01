@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: relaymed-backend
+  namespace: clinicore
+  labels:
+    app: relaymed-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: relaymed-backend
+  template:
+    metadata:
+      labels:
+        app: relaymed-backend
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: relaymed-backend
+          image: relaymed-backend:latest
+          ports:
+            - containerPort: 8001
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          envFrom:
+            - secretRef:
+                name: clinicore-secrets
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health/live
+              port: 8001
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health/ready
+              port: 8001
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: relaymed-backend
+  namespace: clinicore
+spec:
+  selector:
+    app: relaymed-backend
+  ports:
+    - port: 8001
+      targetPort: 8001

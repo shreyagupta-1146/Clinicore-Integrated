@@ -1,0 +1,168 @@
+{
+  "__inputs": [],
+  "__requires": [
+    {"type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0"},
+    {"type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0"}
+  ],
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "title": "API Request Rate",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total[5m]))",
+          "legendFormat": "req/s"
+        }
+      ],
+      "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+    {
+      "id": 2,
+      "title": "P99 Request Latency (ms)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "p99 ms"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Error Rate (%)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "100 * sum(rate(http_requests_total{status=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m]))",
+          "legendFormat": "error %"
+        }
+      ],
+      "options": {
+        "thresholds": {
+          "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 1},
+            {"color": "red", "value": 5}
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Active Consultations",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "targets": [
+        {
+          "expr": "clinicore_active_consultations_total",
+          "legendFormat": "consultations"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "LLM Requests — Cloud vs On-Prem",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [
+        {
+          "expr": "sum(rate(model_gateway_requests_total{route=\"cloud\"}[5m]))",
+          "legendFormat": "Cloud (de-identified)"
+        },
+        {
+          "expr": "sum(rate(model_gateway_requests_total{route=\"onprem\"}[5m]))",
+          "legendFormat": "On-Prem (raw PHI path)"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Consent Operations",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [
+        {
+          "expr": "sum(rate(consent_grants_total[5m]))",
+          "legendFormat": "Granted"
+        },
+        {
+          "expr": "sum(rate(consent_revocations_total[5m]))",
+          "legendFormat": "Revoked"
+        },
+        {
+          "expr": "sum(rate(consent_denials_total[5m]))",
+          "legendFormat": "Denied"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Audit Chain Writes",
+      "type": "timeseries",
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 12},
+      "targets": [
+        {
+          "expr": "sum(rate(audit_chain_writes_total[5m]))",
+          "legendFormat": "writes/s"
+        },
+        {
+          "expr": "sum(rate(audit_chain_failures_total[5m]))",
+          "legendFormat": "failures/s"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Vitals Ingested (RelayMed)",
+      "type": "timeseries",
+      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 12},
+      "targets": [
+        {
+          "expr": "sum(rate(relaymed_vitals_ingested_total[5m]))",
+          "legendFormat": "vitals/s"
+        },
+        {
+          "expr": "sum(rate(relaymed_anomalies_detected_total[5m]))",
+          "legendFormat": "anomalies/s"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Safety Validator Escalations",
+      "type": "timeseries",
+      "gridPos": {"h": 6, "w": 8, "x": 16, "y": 12},
+      "targets": [
+        {
+          "expr": "sum(rate(safety_validator_escalations_total{level=\"emergency\"}[5m]))",
+          "legendFormat": "emergency"
+        },
+        {
+          "expr": "sum(rate(safety_validator_escalations_total{level=\"block\"}[5m]))",
+          "legendFormat": "blocked"
+        },
+        {
+          "expr": "sum(rate(safety_validator_escalations_total{level=\"warning\"}[5m]))",
+          "legendFormat": "warning"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["clinicore", "platform", "overview"],
+  "time": {"from": "now-1h", "to": "now"},
+  "title": "Clinicore Platform Overview",
+  "uid": "clinicore-overview",
+  "version": 1
+}

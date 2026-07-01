@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker
+  namespace: clinicore
+  labels:
+    app: celery-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: celery-worker
+  template:
+    metadata:
+      labels:
+        app: celery-worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: celery-worker
+          image: clinicore-backend:latest
+          command:
+            - celery
+            - -A
+            - apps.clinicore.backend.tasks.celery_app
+            - worker
+            - --queues=clinicore,relaymed
+            - --concurrency=4
+            - --loglevel=info
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          envFrom:
+            - secretRef:
+                name: clinicore-secrets
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-beat
+  namespace: clinicore
+  labels:
+    app: celery-beat
+spec:
+  replicas: 1   # beat must be singleton
+  selector:
+    matchLabels:
+      app: celery-beat
+  template:
+    metadata:
+      labels:
+        app: celery-beat
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: celery-beat
+          image: clinicore-backend:latest
+          command:
+            - celery
+            - -A
+            - apps.clinicore.backend.tasks.celery_app
+            - beat
+            - --loglevel=info
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false   # beat writes schedule file
+            capabilities:
+              drop: ["ALL"]
+          envFrom:
+            - secretRef:
+                name: clinicore-secrets
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          volumeMounts:
+            - name: beat-schedule
+              mountPath: /var/celery
+      volumes:
+        - name: beat-schedule
+          emptyDir: {}

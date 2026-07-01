@@ -1,0 +1,260 @@
+version: '3.9'
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Clinicore-Integrated — Full development stack
+# All services run locally. Production uses K8s (see sre/k8s/).
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Primary database ─────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-clinicore}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-clinicore}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/01_init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-clinicore}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Cache / session store ─────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ── Vector search (RAG) ───────────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:v1.9.2
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "6333:6333"
+      - "6334:6334"   # gRPC
+
+  # ── Object storage (images, reports) ─────────────────────────────────────
+  minio:
+    image: minio/minio:RELEASE.2024-05-01T01-11-10Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-clinicore}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Identity: Keycloak + FIDO2 (phishing-resistant MFA) ──────────────────
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0.2
+    command: start-dev --import-realm
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-clinicore}
+      KC_DB_USERNAME: ${POSTGRES_USER:-clinicore}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-localhost}
+      KC_FEATURES: passkeys,fido2
+    volumes:
+      - ./infrastructure/keycloak/realm-export.json:/opt/keycloak/data/import/realm.json:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── Secrets / KMS: HashiCorp Vault ───────────────────────────────────────
+  vault:
+    image: hashicorp/vault:1.16.2
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_TOKEN:-dev-root-token}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    ports:
+      - "8200:8200"
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - vault_data:/vault/data
+      - ./infrastructure/vault/policies:/vault/policies:ro
+
+  # ── WORM audit log: immudb ────────────────────────────────────────────────
+  immudb:
+    image: codenotary/immudb:1.9.4
+    environment:
+      IMMUDB_ADMIN_PASSWORD: ${IMMUDB_PASSWORD:-immudb}
+    volumes:
+      - immudb_data:/var/lib/immudb
+    ports:
+      - "3322:3322"   # gRPC
+      - "9497:9497"   # Prometheus metrics
+
+  # ── SIEM telemetry: OpenSearch ────────────────────────────────────────────
+  opensearch:
+    image: opensearchproject/opensearch:2.13.0
+    environment:
+      discovery.type: single-node
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_PASSWORD}
+      DISABLE_INSTALL_DEMO_CONFIG: "false"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s https://localhost:9200/_cluster/health -ku admin:${OPENSEARCH_PASSWORD} | grep -q '\"status\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ── Clinicore backend (B2B — doctors, med students, emergency centres) ────
+  clinicore-backend:
+    build:
+      context: .
+      dockerfile: apps/clinicore/backend/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      VAULT_URL: http://vault:8200
+      VAULT_TOKEN: ${VAULT_TOKEN:-dev-root-token}
+      KEYCLOAK_URL: http://keycloak:8080
+      QDRANT_URL: http://qdrant:6333
+      MINIO_URL: http://minio:9000
+      IMMUDB_HOST: immudb
+      OPENSEARCH_URL: https://opensearch:9200
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    volumes:
+      - ./apps/clinicore/backend:/app/clinicore:ro
+      - ./substrate:/app/substrate:ro
+      - ./ai_services:/app/ai_services:ro
+
+  # ── RelayMed backend (B2C — patients, elderly, caregivers) ───────────────
+  relaymed-backend:
+    build:
+      context: .
+      dockerfile: apps/relaymed/backend/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
+      VAULT_URL: http://vault:8200
+      VAULT_TOKEN: ${VAULT_TOKEN:-dev-root-token}
+      KEYCLOAK_URL: http://keycloak:8080
+      IMMUDB_HOST: immudb
+      OPENSEARCH_URL: https://opensearch:9200
+    ports:
+      - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./apps/relaymed/backend:/app/relaymed:ro
+      - ./substrate:/app/substrate:ro
+      - ./ai_services:/app/ai_services:ro
+
+  # ── Background task worker (PubMed sync, report generation) ──────────────
+  celery-worker:
+    build:
+      context: .
+      dockerfile: apps/clinicore/backend/Dockerfile
+    command: celery -A apps.clinicore.backend.tasks.celery_app worker -Q clinicore,relaymed --loglevel=info --concurrency=4
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      VAULT_URL: http://vault:8200
+      VAULT_TOKEN: ${VAULT_TOKEN:-dev-root-token}
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: apps/clinicore/backend/Dockerfile
+    command: celery -A apps.clinicore.backend.tasks.celery_app beat --loglevel=info
+    env_file: .env
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ── Monitoring: Prometheus + Grafana ─────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    volumes:
+      - ./sre/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./sre/monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  minio_data:
+  vault_data:
+  immudb_data:
+  opensearch_data:
+  prometheus_data:
+  grafana_data:

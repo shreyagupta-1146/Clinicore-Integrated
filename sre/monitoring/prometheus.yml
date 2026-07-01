@@ -1,0 +1,71 @@
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'clinicore-dev'
+    environment: 'development'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []   # Add alertmanager:9093 in production
+
+rule_files:
+  - "rules/*.yml"
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Clinicore backend (FastAPI + Prometheus instrumentator)
+  - job_name: 'clinicore-backend'
+    static_configs:
+      - targets: ['clinicore-backend:8000']
+    metrics_path: '/metrics'
+
+  # RelayMed backend
+  - job_name: 'relaymed-backend'
+    static_configs:
+      - targets: ['relaymed-backend:8001']
+    metrics_path: '/metrics'
+
+  # PostgreSQL (via postgres_exporter)
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+
+  # Redis (via redis_exporter)
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
+  # Qdrant vector store
+  - job_name: 'qdrant'
+    static_configs:
+      - targets: ['qdrant:6333']
+    metrics_path: '/metrics'
+
+  # MinIO object storage
+  - job_name: 'minio'
+    static_configs:
+      - targets: ['minio:9000']
+    metrics_path: '/minio/v2/metrics/cluster'
+
+  # OpenSearch (SIEM telemetry)
+  - job_name: 'opensearch'
+    static_configs:
+      - targets: ['opensearch:9200']
+    metrics_path: '/_prometheus/metrics'
+
+  # Keycloak
+  - job_name: 'keycloak'
+    static_configs:
+      - targets: ['keycloak:8080']
+    metrics_path: '/metrics'
+
+  # Celery (via celery-exporter or flower)
+  - job_name: 'celery'
+    static_configs:
+      - targets: ['celery-exporter:9808']

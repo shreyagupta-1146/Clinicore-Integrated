@@ -1,0 +1,12 @@
+apiVersion: v2
+name: relaymed
+description: RelayMed B2C chronic-disease companion — vitals, adherence, caregiver
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - healthcare
+  - patient-app
+  - india
+maintainers:
+  - name: Clinicore Platform Team

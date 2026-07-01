@@ -1,0 +1,41 @@
+# ── Dependencies ─────────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+
+# ── Build output ─────────────────────────────────────────────
+dist/
+build/
+.vite/
+*.tsbuildinfo
+
+# ── Python ───────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Secrets & env (NEVER commit real ones; .example files are kept) ──
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ── Editor / OS ──────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ── Logs & temp ──────────────────────────────────────────────
+*.log
+npm-debug.log*
+.cache/
+
+# ── Local claude/preview config ──────────────────────────────
+.claude/

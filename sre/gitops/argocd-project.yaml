@@ -1,0 +1,57 @@
+# Argo CD AppProject — scopes what the clinicore project can deploy.
+# Restricts source repos, destination clusters/namespaces, and resource kinds.
+# This prevents a misconfigured Application from accidentally deploying to
+# another team's namespace or from pulling images from untrusted registries.
+
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: clinicore
+  namespace: argocd
+spec:
+  description: Clinicore Health Platform — Argo CD project scope
+
+  # Only our repo is an allowed source
+  sourceRepos:
+    - https://github.com/your-org/clinicore-integrated
+
+  destinations:
+    - namespace: clinicore
+      server: https://kubernetes.default.svc
+    - namespace: clinicore-dev
+      server: https://kubernetes.default.svc
+
+  # Deny cluster-scoped resources (CRDs, ClusterRoles) — platform team manages these
+  clusterResourceWhitelist: []
+
+  namespaceResourceWhitelist:
+    - group: "apps"
+      kind: Deployment
+    - group: "apps"
+      kind: StatefulSet
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: ServiceAccount
+    - group: "networking.k8s.io"
+      kind: NetworkPolicy
+    - group: "policy"
+      kind: PodDisruptionBudget
+    - group: "autoscaling"
+      kind: HorizontalPodAutoscaler
+
+  roles:
+    - name: dev-deployer
+      description: CI/CD pipeline — can sync dev applications only
+      policies:
+        - p, proj:clinicore:dev-deployer, applications, sync, clinicore/clinicore-dev, allow
+      groups:
+        - clinicore-ci
+    - name: prod-deployer
+      description: Release manager — can sync prod applications
+      policies:
+        - p, proj:clinicore:prod-deployer, applications, sync, clinicore/clinicore-prod, allow
+      groups:
+        - clinicore-release-managers

@@ -1,0 +1,5 @@
+# Minimal dependencies for the fast-path safety eval harness.
+# Deliberately does NOT include the LLM/DB stack — these cases must run in
+# under a second on every PR with no live infrastructure (see runner.py docstring).
+pydantic>=2.6,<3
+pytest>=8.0,<9
